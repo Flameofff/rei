@@ -1,195 +1,18 @@
-import { bufferToInt, rlp, BN, intToBuffer } from 'ethereumjs-util';
-import { mustParseTransction, Transaction, Block, BlockHeader, BlockHeaderBuffer, TransactionsBuffer } from '@gxchain2/structure';
+import { BN } from 'ethereumjs-util';
+import { Transaction, Block, BlockHeader } from '@gxchain2/structure';
 import { logger, Channel, createBufferFunctionalSet } from '@gxchain2/utils';
 import { ProtocolHandler, Peer } from '@gxchain2/network';
 import { NodeStatus } from '../../node';
 import { PeerRequestTimeoutError } from '../types';
 import { WireProtocol } from './protocol';
+import { WireMessageFactory } from './wireMessageFactory';
+import * as w from './wireMessage';
 
 const maxTxPacketSize = 102400;
 const maxKnownTxs = 32768;
 const maxKnownBlocks = 1024;
 const maxQueuedTxs = 4096;
 const maxQueuedBlocks = 4;
-
-export const maxGetBlockHeaders = 128;
-export const maxTxRetrievals = 256;
-
-type HandlerFunc = {
-  name: string;
-  code: number;
-  response?: number;
-  encode(data: any): any;
-  decode(data: any): any;
-  process?: (data: any) => Promise<[string, any]> | Promise<[string, any] | void> | [string, any] | void;
-};
-
-const wireHandlerFuncs: HandlerFunc[] = [
-  {
-    name: 'Status',
-    code: 0,
-    encode(this: WireProtocolHandler, data: NodeStatus) {
-      const payload: any = Object.entries(data).map(([k, v]) => [k, v]);
-      return payload;
-    },
-    decode(this: WireProtocolHandler, data): NodeStatus {
-      const status: any = {};
-      data.forEach(([k, v]: any) => {
-        status[k.toString()] = v;
-      });
-      return {
-        networkId: bufferToInt(status.networkId),
-        totalDifficulty: status.totalDifficulty,
-        height: bufferToInt(status.height),
-        bestHash: status.bestHash,
-        genesisHash: status.genesisHash
-      };
-    },
-    process(this: WireProtocolHandler, status: NodeStatus) {
-      this.handshakeResponse(status);
-    }
-  },
-  {
-    name: 'GetBlockHeaders',
-    code: 1,
-    response: 2,
-    encode(this: WireProtocolHandler, { start, count }: { start: number; count: number }) {
-      return [start, count];
-    },
-    decode(this: WireProtocolHandler, [start, count]: Buffer[]) {
-      return { start: bufferToInt(start), count: bufferToInt(count) };
-    },
-    async process(this: WireProtocolHandler, { start, count }: { start: number; count: number }): Promise<[string, BlockHeader[]] | void> {
-      if (count > maxGetBlockHeaders) {
-        this.node.banPeer(this.peer.peerId, 'invalid');
-        return;
-      }
-      const blocks = await this.node.blockchain.getBlocks(start, count, 0, false);
-      return ['BlockHeaders', blocks.map((b) => b.header)];
-    }
-  },
-  {
-    name: 'BlockHeaders',
-    code: 2,
-    encode(this: WireProtocolHandler, headers: BlockHeader[]) {
-      return headers.map((h) => h.raw());
-    },
-    decode(this: WireProtocolHandler, headers: BlockHeaderBuffer[]) {
-      return headers.map((h) => BlockHeader.fromValuesArray(h, { common: this.node.getCommon(0), hardforkByBlockNumber: true }));
-    }
-  },
-  {
-    name: 'GetBlockBodies',
-    code: 3,
-    response: 4,
-    encode(this: WireProtocolHandler, headers: BlockHeader[]) {
-      return headers.map((h) => h.hash());
-    },
-    decode(this: WireProtocolHandler, headerHashs: Buffer[]) {
-      return headerHashs;
-    },
-    async process(this: WireProtocolHandler, headerHashs: Buffer[]): Promise<[string, Transaction[][]] | void> {
-      if (headerHashs.length > maxGetBlockHeaders) {
-        this.node.banPeer(this.peer.peerId, 'invalid');
-        return;
-      }
-      const bodies: Transaction[][] = [];
-      for (const hash of headerHashs) {
-        try {
-          const block = await this.node.db.getBlock(hash);
-          bodies.push(block.transactions as Transaction[]);
-        } catch (err: any) {
-          if (err.type !== 'NotFoundError') {
-            throw err;
-          }
-          bodies.push([]);
-        }
-      }
-      return ['BlockBodies', bodies];
-    }
-  },
-  {
-    name: 'BlockBodies',
-    code: 4,
-    encode(this: WireProtocolHandler, bodies: Transaction[][]) {
-      return bodies.map((txs) => {
-        return txs.map((tx) => tx.raw() as Buffer[]);
-      });
-    },
-    decode(this: WireProtocolHandler, bodies: TransactionsBuffer[]): Transaction[][] {
-      return bodies.map((txs) => {
-        return txs.map((tx) => mustParseTransction(tx, { common: this.node.getCommon(0) }));
-      });
-    }
-  },
-  {
-    name: 'NewBlock',
-    code: 5,
-    encode(this: WireProtocolHandler, { block, td }: { block: Block; td: BN }) {
-      return [[block.header.raw(), block.transactions.map((tx) => tx.raw() as Buffer[])], td.toBuffer()];
-    },
-    decode(this: WireProtocolHandler, raw): { block: Block; td: BN } {
-      return {
-        block: Block.fromValuesArray(raw[0], { common: this.node.getCommon(0), hardforkByBlockNumber: true }),
-        td: new BN(raw[1])
-      };
-    },
-    process(this: WireProtocolHandler, { block, td }: { block: Block; td: BN }) {
-      const height = block.header.number.toNumber();
-      const bestHash = block.hash();
-      this.knowBlocks([bestHash]);
-      const totalDifficulty = td.toBuffer();
-      this.updateStatus({ height, bestHash, totalDifficulty });
-      this.node.sync.announce(this.peer);
-    }
-  },
-  {
-    name: 'NewPooledTransactionHashes',
-    code: 6,
-    encode(this: WireProtocolHandler, hashes: Buffer[]) {
-      return [...hashes];
-    },
-    decode(this: WireProtocolHandler, hashes): Buffer[] {
-      return hashes;
-    },
-    process(this: WireProtocolHandler, hashes: Buffer[]) {
-      if (hashes.length > maxTxPacketSize) {
-        this.node.banPeer(this.peer.peerId, 'invalid');
-        return;
-      }
-      this.knowTxs(hashes);
-      this.node.txSync.newPooledTransactionHashes(this.peer.peerId, hashes);
-    }
-  },
-  {
-    name: 'GetPooledTransactions',
-    code: 7,
-    response: 8,
-    encode(this: WireProtocolHandler, hashes: Buffer[]) {
-      return [...hashes];
-    },
-    decode(this: WireProtocolHandler, hashes): Buffer[] {
-      return hashes;
-    },
-    process(this: WireProtocolHandler, hashes: Buffer[]) {
-      if (hashes.length > maxTxRetrievals) {
-        this.node.banPeer(this.peer.peerId, 'invalid');
-        return;
-      }
-      return ['PooledTransactions', hashes.map((hash) => this.node.txPool.getTransaction(hash)).filter((tx) => tx !== undefined)];
-    }
-  },
-  {
-    name: 'PooledTransactions',
-    code: 8,
-    encode(this: WireProtocolHandler, txs: Transaction[]) {
-      return txs.map((tx) => tx.raw() as Buffer[]);
-    },
-    decode(this: WireProtocolHandler, raws: TransactionsBuffer) {
-      return raws.map((raw) => mustParseTransction(raw, { common: this.node.getLatestCommon() }));
-    }
-  }
-];
 
 /**
  * WireProtocolHandler is used to manage protocol communication between nodes
@@ -255,26 +78,13 @@ export class WireProtocolHandler implements ProtocolHandler {
   }
 
   /**
-   * Get method hander according to method name
-   * @param method - Method name
-   * @returns Handler function
-   */
-  protected findHandler(method: string | number) {
-    const handler = wireHandlerFuncs.find((h) => (typeof method === 'string' ? h.name === method : h.code === method));
-    if (!handler) {
-      throw new Error(`Missing handler, method: ${method}`);
-    }
-    return handler;
-  }
-
-  /**
    * {@link ProtocolHandler.handshake}
    */
   handshake() {
     if (!this.handshakeResolve) {
       throw new Error('repeated handshake');
     }
-    this.send(0, this.node.status);
+    this.send(new w.StatusMessage(this.node.status));
     this.handshakeTimeout = setTimeout(() => {
       if (this.handshakeResolve) {
         this.handshakeResolve(false);
@@ -309,35 +119,37 @@ export class WireProtocolHandler implements ProtocolHandler {
    * @param method - Method name or code
    * @param data - Message data
    */
-  send(method: string | number, data: any) {
-    const handler = this.findHandler(method);
-    this.peer.send(this.protocol.name, rlp.encode([intToBuffer(handler.code), handler.encode.call(this, data)]));
-  }
+  // send(method: string | number, data: any) {
+  //   const handler = this.findHandler(method);
+  //   this.peer.send(this.protocol.name, rlp.encode([intToBuffer(handler.code), handler.encode.call(this, data)]));
+  // }
 
+  send(msg: w.WireMessage) {
+    this.peer.send(this.protocol.name, WireMessageFactory.serializeMessage(msg));
+  }
   /**
    * Send message to the peer and wait for the response
    * @param method - Method name
    * @param data - Message data
    * @returns Response
    */
-  request(method: string, data: any) {
-    const handler = this.findHandler(method);
-    if (!handler.response) {
-      throw new Error(`invalid request: ${method}`);
+  request(msg: w.WireMessage) {
+    if (!msg.response) {
+      throw new Error(`invalid request: ${msg}`);
     }
-    if (this.waitingRequests.has(handler.response!)) {
-      throw new Error(`repeated request: ${method}`);
+    if (this.waitingRequests.has(msg.response!)) {
+      throw new Error(`repeated request: ${msg}`);
     }
     return new Promise<any>((resolve, reject) => {
-      this.waitingRequests.set(handler.response!, {
+      this.waitingRequests.set(msg.response!, {
         reject,
         resolve,
         timeout: setTimeout(() => {
-          this.waitingRequests.delete(handler.response!);
-          reject(new PeerRequestTimeoutError(`timeout request: ${method}`));
+          this.waitingRequests.delete(msg.response!);
+          reject(new PeerRequestTimeoutError(`timeout request: ${msg}`));
         }, 8000)
       });
-      this.send(method, data);
+      this.send(msg);
     });
   }
 
@@ -370,46 +182,79 @@ export class WireProtocolHandler implements ProtocolHandler {
    * @param data - Received data
    */
   async handle(data: Buffer) {
-    const decoded = rlp.decode(data);
-    if (!Array.isArray(decoded) || decoded.length !== 2) {
-      throw new Error('invalid decoded values');
-    }
-
-    const [codeBuf, valuesArray]: any = decoded;
-    const code = bufferToInt(codeBuf);
-    const handler = this.findHandler(code);
-    data = handler.decode.call(this, valuesArray);
-
+    const msg = WireMessageFactory.fromSerializedWireMessage(data);
+    const code = WireMessageFactory.registry.getCodeByInstance(msg);
     const request = this.waitingRequests.get(code);
+
     if (request) {
       clearTimeout(request.timeout);
       this.waitingRequests.delete(code);
       request.resolve(data);
-    } else if (handler.process) {
+    } else {
       if (code !== 0 && !(await this.handshakePromise)) {
         logger.warn('WireProtocolHander::handle, handshake failed');
         return;
       }
+      if (msg instanceof w.StatusMessage) {
+        this.applyStatusMessage(msg);
+      } else if (msg instanceof w.GetBlockHeadersMessage) {
+        await this.applyGetBlockHeadersMessage(msg);
+      } else if (msg instanceof w.GetBlockBodiesMessage) {
+        await this.applyGetBlockBodiesMessage(msg);
+      } else if (msg instanceof w.NewBlockMessage) {
+        this.applyNewBlockMessage(msg);
+      } else if (msg instanceof w.NewPooledTransactionHashesMessage) {
+        this.applyNewPooledTransactionHashesMessage(msg);
+      } else if (msg instanceof w.GetPooledTransactionsMessage) {
+        this.applyGetPooledTransactionsMessage(msg);
+      } else {
+        logger.warn('WireProtocolHander::handler, unknown message');
+        return;
+      }
+    }
+  }
 
-      const result = handler.process.call(this, data);
-      if (result) {
-        if (Array.isArray(result)) {
-          const [method, resps] = result;
-          this.send(method, resps);
-        } else {
-          result
-            .then((response) => {
-              if (response) {
-                const [method, resps] = response;
-                this.send(method, resps);
-              }
-            })
-            .catch((err) => {
-              logger.error('HandlerBase::process, catch error:', err);
-            });
+  private applyStatusMessage(msg: w.StatusMessage) {
+    this.handshakeResponse(msg.data);
+  }
+
+  private async applyGetBlockHeadersMessage(msg: w.GetBlockHeadersMessage) {
+    const blocks = await this.node.blockchain.getBlocks(msg.start, msg.count, 0, false);
+    this.send(new w.BlockHeadersMessage(blocks.map((block) => block.header.raw())));
+  }
+
+  private async applyGetBlockBodiesMessage(msg: w.GetBlockBodiesMessage) {
+    const bodies: Transaction[][] = [];
+    for (const hash of msg.raw()) {
+      try {
+        const block = await this.node.db.getBlock(hash);
+        bodies.push(block.transactions as Transaction[]);
+      } catch (err: any) {
+        if (err.type !== 'NotFoundError') {
+          throw err;
         }
       }
     }
+    this.send(new w.BlockBodiesMessage(bodies));
+  }
+
+  private applyNewBlockMessage(msg: w.NewBlockMessage) {
+    const height = msg.block.header.number.toNumber();
+    const bestHash = msg.block.hash();
+    this.knowBlocks([bestHash]);
+    const totalDifficulty = msg.td.toBuffer();
+    this.updateStatus({ height, bestHash, totalDifficulty });
+    this.node.sync.announce(this.peer);
+  }
+
+  private applyNewPooledTransactionHashesMessage(msg: w.NewPooledTransactionHashesMessage) {
+    this.knowTxs(msg.hashes);
+    this.node.txSync.newPooledTransactionHashes(this.peer.peerId, msg.hashes);
+  }
+
+  private applyGetPooledTransactionsMessage(msg: w.GetPooledTransactionsMessage) {
+    const hashes = msg.hashes.map((hash) => this.node.txPool.getTransaction(hash)).filter((tx) => tx !== undefined);
+    this.send(new w.PooledTransactionsMessage(hashes as Transaction[]));
   }
 
   private async newBlockAnnouncesLoop() {
@@ -528,7 +373,7 @@ export class WireProtocolHandler implements ProtocolHandler {
   private newBlock(block: Block, td: BN) {
     const filtered = this.filterBlocks([block], (b) => b.hash());
     if (filtered.length > 0) {
-      this.send('NewBlock', { block, td });
+      this.send(new w.NewBlockMessage(block, td));
       this.knowBlocks([block.hash()]);
     }
   }
@@ -550,7 +395,7 @@ export class WireProtocolHandler implements ProtocolHandler {
   private newPooledTransactionHashes(hashes: Buffer[]) {
     const filtered = this.filterTxs(hashes, (h) => h);
     if (filtered.length > 0) {
-      this.send('NewPooledTransactionHashes', filtered);
+      this.send(new w.NewPooledTransactionHashesMessage(filtered));
       this.knowTxs(filtered);
     }
   }
@@ -562,7 +407,8 @@ export class WireProtocolHandler implements ProtocolHandler {
    * @returns The block headers
    */
   getBlockHeaders(start: number, count: number): Promise<BlockHeader[]> {
-    return this.request('GetBlockHeaders', { start, count });
+    const msg = new w.GetBlockHeadersMessage(start, count);
+    return this.request(msg);
   }
 
   /**
@@ -571,7 +417,8 @@ export class WireProtocolHandler implements ProtocolHandler {
    * @returns The block bodies
    */
   getBlockBodies(headers: BlockHeader[]): Promise<Transaction[][]> {
-    return this.request('GetBlockBodies', headers);
+    const msg = new w.GetBlockBodiesMessage(headers.map((header) => header.hash()));
+    return this.request(msg);
   }
 
   /**
@@ -580,7 +427,7 @@ export class WireProtocolHandler implements ProtocolHandler {
    * @returns Transactions
    */
   getPooledTransactions(hashes: Buffer[]): Promise<Transaction[]> {
-    return this.request('GetPooledTransactions', hashes);
+    return this.request(new w.GetPooledTransactionsMessage(hashes));
   }
 
   /**

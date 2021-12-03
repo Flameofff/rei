@@ -21,7 +21,7 @@
         "@gxchain2/blockchain": "^0.0.2",
         "@gxchain2/common": "^0.0.2",
         "@gxchain2/database": "^0.0.2",
-        "@gxchain2/evmc": "^2.0.1",
+        "@gxchain2/evmc": "^2.0.2",
         "@gxchain2/network": "^0.0.1",
         "@gxchain2/structure": "^0.0.1",
         "@gxchain2/utils": "^0.0.1",

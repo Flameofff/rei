@@ -8,7 +8,7 @@ function _ecrecover(message: EVMCMessage, common: Common): EvmcResult {
   const gasUsed = new BN(common.param('gasPrices', 'ecRecover'));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -35,7 +35,7 @@ function _sha256(message: EVMCMessage, common: Common): EvmcResult {
   gasUsed.iadd(new BN(common.param('gasPrices', 'sha256Word')).imuln(Math.ceil(message.inputData.length / 32)));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -48,7 +48,7 @@ function _ripemd160(message: EVMCMessage, common: Common): EvmcResult {
   gasUsed.iadd(new BN(common.param('gasPrices', 'ripemd160Word')).imuln(Math.ceil(message.inputData.length / 32)));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -61,7 +61,7 @@ function _identity(message: EVMCMessage, common: Common): EvmcResult {
   gasUsed.iadd(new BN(common.param('gasPrices', 'identityWord')).imuln(Math.ceil(message.inputData.length / 32)));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -173,7 +173,7 @@ function _modexp(message: EVMCMessage, common: Common): EvmcResult {
   }
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -183,14 +183,14 @@ function _modexp(message: EVMCMessage, common: Common): EvmcResult {
   }
 
   if (mLen.isZero()) {
-    return toEvmcResult({ gasLeft, statusCode: EvmcStatusCode.EVMC_SUCCESS, outputData: Buffer.alloc(0) });
+    return toEvmcResult({ gasLeft, statusCode: EvmcStatusCode.EVMC_SUCCESS });
   }
 
   const maxInt = new BN(Number.MAX_SAFE_INTEGER);
   const maxSize = new BN(2147483647); // ethereumjs-util setLengthRight limitation
 
   if (bLen.gt(maxSize) || eLen.gt(maxSize) || mLen.gt(maxSize)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const B = new BN(setLengthRight(data.slice(bStart.toNumber(), bEnd.toNumber()), bLen.toNumber()));
@@ -198,7 +198,7 @@ function _modexp(message: EVMCMessage, common: Common): EvmcResult {
   const M = new BN(setLengthRight(data.slice(mStart.toNumber(), mEnd.toNumber()), mLen.toNumber()));
 
   if (mEnd.gt(maxInt)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   let R;
@@ -215,7 +215,7 @@ function _ecadd(message: EVMCMessage, common: Common): EvmcResult {
   const gasUsed = new BN(common.param('gasPrices', 'ecAdd'));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -224,7 +224,7 @@ function _ecadd(message: EVMCMessage, common: Common): EvmcResult {
 
   // check ecadd success or failure by comparing the output length
   if (returnData.length !== 64) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   return toEvmcResult({ gasLeft, statusCode: EvmcStatusCode.EVMC_SUCCESS, outputData: returnData });
@@ -234,7 +234,7 @@ function _ecmul(message: EVMCMessage, common: Common): EvmcResult {
   const gasUsed = new BN(common.param('gasPrices', 'ecMul'));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -243,7 +243,7 @@ function _ecmul(message: EVMCMessage, common: Common): EvmcResult {
 
   // check ecadd success or failure by comparing the output length
   if (returnData.length !== 64) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   return toEvmcResult({ gasLeft, statusCode: EvmcStatusCode.EVMC_SUCCESS, outputData: returnData });
@@ -255,7 +255,7 @@ function _ecpairing(message: EVMCMessage, common: Common): EvmcResult {
   const gasUsed = new BN(<number>common.param('gasPrices', 'ecPairing') + inputDataSize * common.param('gasPrices', 'ecPairingWord'));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);
@@ -264,7 +264,7 @@ function _ecpairing(message: EVMCMessage, common: Common): EvmcResult {
 
   // check ecpairing success or failure by comparing the output length
   if (returnData.length !== 32) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   return toEvmcResult({ gasLeft, statusCode: EvmcStatusCode.EVMC_SUCCESS, outputData: returnData });
@@ -427,19 +427,11 @@ function F(h: Uint32Array, m: Uint32Array, t: Uint32Array, f: boolean, rounds: n
 function _blake2f(message: EVMCMessage, common: Common): EvmcResult {
   const data = message.inputData;
   if (data.length !== 213) {
-    return toEvmcResult({
-      gasLeft: new BN(0),
-      outputData: Buffer.alloc(0),
-      statusCode: EvmcStatusCode.EVMC_ARGUMENT_OUT_OF_RANGE
-    });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_ARGUMENT_OUT_OF_RANGE });
   }
   const lastByte = data.slice(212, 213)[0];
   if (lastByte !== 1 && lastByte !== 0) {
-    return toEvmcResult({
-      gasLeft: new BN(0),
-      outputData: Buffer.alloc(0),
-      statusCode: EvmcStatusCode.EVMC_ARGUMENT_OUT_OF_RANGE
-    });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_ARGUMENT_OUT_OF_RANGE });
   }
 
   const rounds = data.slice(0, 4).readUInt32BE(0);
@@ -453,7 +445,7 @@ function _blake2f(message: EVMCMessage, common: Common): EvmcResult {
   gasUsed.imul(new BN(rounds));
 
   if (message.gas.lt(gasUsed)) {
-    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS, gasLeft: new BN(0) });
+    return toEvmcResult({ statusCode: EvmcStatusCode.EVMC_OUT_OF_GAS });
   }
 
   const gasLeft = message.gas.sub(gasUsed);

@@ -38,14 +38,13 @@ export interface EVMCTxContext {
 
 export interface EVMCMessage {
   gas: BN;
-  nonce?: BN;
   isStatic: boolean;
   depth: number;
   sender: Address;
   destination?: Address;
   inputData: Buffer;
   value: BN;
-  kind: EvmcCallKind;
+  kind?: EvmcCallKind;
 }
 
 export interface EVMCResult {
@@ -78,7 +77,7 @@ export function toEvmcMessage(msg: EVMCMessage): EvmcMessage {
     destination: addressToBI(msg.destination!),
     inputData: msg.inputData,
     value: bnToBI(msg.value),
-    kind: msg.kind
+    kind: msg.kind ?? EvmcCallKind.EVMC_CALL
   };
 }
 

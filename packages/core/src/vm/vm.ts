@@ -4,8 +4,9 @@ import { EIP2929StateManager } from '@gxchain2-ethereumjs/vm/dist/state/interfac
 import { Log } from '@gxchain2-ethereumjs/vm/dist/evm/types';
 import { setLengthLeftStorage } from '@gxchain2-ethereumjs/vm/dist/evm/opcodes/util';
 import { Database } from '@gxchain2/database';
-import { Evmc, EvmcStorageStatus, EvmcMessage, EvmcTxContext, EvmcAccessStatus, EvmcRevision, evmc_flags } from '@gxchain2/evmc';
-import { biToAddress, biToBuffer, bufferToBI, EVMCMessage, EVMCTxContext, toEvmcMessage, toEvmcTxContext } from './utils';
+import { Evmc, EvmcStorageStatus, EvmcMessage, EvmcTxContext, EvmcAccessStatus, EvmcRevision } from '@gxchain2/evmc';
+import { biToAddress, biToBN, biToBuffer, bnToBI, bufferToBI, EVMCMessage, EVMCTxContext, toEVMCMessage, toEvmcMessage, toEvmcTxContext } from './utils';
+import { getPrecompile } from './precompiles';
 
 export class EVMC extends Evmc {
   ctx!: EvmcTxContext;
@@ -73,7 +74,7 @@ export class EVMC extends Evmc {
   }
 
   async getBalance(account: bigint) {
-    return BigInt((await this.stateManager.getAccount(biToAddress(account))).balance.toString());
+    return bnToBI((await this.stateManager.getAccount(biToAddress(account))).balance);
   }
 
   async getCodeSize(address: bigint) {
@@ -107,9 +108,15 @@ export class EVMC extends Evmc {
   }
 
   async call(message: EvmcMessage) {
-    console.log('call:', message);
-    const code = await this.stateManager.getContractCode(biToAddress(message.destination));
-    return this.execute(message, code, EvmcRevision.EVMC_BERLIN);
+    const common = this.stateManager._common;
+    const _message = toEVMCMessage(message);
+    const fn = getPrecompile(_message.destination!, common);
+    if (fn) {
+      return fn(_message, common);
+    } else {
+      const code = await this.stateManager.getContractCode(_message.destination!);
+      return this.execute(message, code, EvmcRevision.EVMC_BERLIN);
+    }
   }
 
   getTxContext() {
@@ -118,7 +125,7 @@ export class EVMC extends Evmc {
 
   async getBlockHash(num: bigint) {
     try {
-      const hash = await this.db.numberToHash(new BN(num.toString()));
+      const hash = await this.db.numberToHash(biToBN(num));
       return bufferToBI(hash);
     } catch (err) {
       return BigInt(0);
@@ -149,20 +156,22 @@ export class EVMC extends Evmc {
     return warmed ? EvmcAccessStatus.EVMC_ACCESS_WARM : EvmcAccessStatus.EVMC_ACCESS_COLD;
   }
 
-  async executeMessage(message: EVMCMessage, ctx: EVMCTxContext) {
+  async executeMessage(message: EVMCMessage, ctx: EVMCTxContext, nonce: BN) {
     this.ctx = toEvmcTxContext(ctx);
-
-    if (message.nonce === undefined) {
-      throw new Error('missing nonce');
-    }
 
     let code: Buffer;
     if (message.destination) {
-      code = await this.stateManager.getContractCode(message.destination);
+      const common = this.stateManager._common;
+      const fn = getPrecompile(message.destination, common);
+      if (fn) {
+        return fn(message, common);
+      } else {
+        code = await this.stateManager.getContractCode(message.destination);
+      }
     } else {
       code = message.inputData;
       message.inputData = Buffer.from([]);
-      message.destination = new Address(generateAddress(message.sender.buf, message.nonce.toArrayLike(Buffer)));
+      message.destination = new Address(generateAddress(message.sender.buf, nonce.toArrayLike(Buffer)));
     }
 
     return this.execute(toEvmcMessage(message), code, EvmcRevision.EVMC_BERLIN);

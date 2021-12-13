@@ -84,7 +84,7 @@ contract Fee is ReentrancyGuard, Only, IFee {
     }
 
     /**
-     * Estimate wtihdrawable timestamp, if the estimation fails, return 0.
+     * Estimate withdrawable timestamp, if the estimation fails, return 0.
      * @param user      Target user address
      * @param from      From user address
      */

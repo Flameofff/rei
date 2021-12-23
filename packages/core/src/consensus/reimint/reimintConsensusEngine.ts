@@ -92,9 +92,6 @@ export class ReimintConsensusEngine extends BaseConsensusEngine implements Conse
 
     // create a new pending block through worker
     const pendingBlock = await this.worker.createPendingBlock(header);
-    if (!this.enable) {
-      return;
-    }
 
     const difficulty = new BN(1);
     const gasLimit = this.calcGasLimit(block.header);
